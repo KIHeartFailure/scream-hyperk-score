@@ -1,0 +1,19 @@
+```{r}
+#| label: tbl-basetab
+#| cache: true
+#| cache.comments: false
+#| tbl-cap: "Overview"
+#| tbl-pos: "H"
+
+tabvars <- names(pop)
+
+tab <-
+  tbl_summary(
+    pop,
+    include = c(-lopnr, -deathcause, -deathdtm, -indexdtm, -censdtm, -dob, -deathyear, -popdtm)
+  ) %>%
+  as_kable(tbl, format = "latex", longtable = TRUE, booktabs = TRUE, linesep = "") %>%
+  kableExtra::kable_styling(latex_options = c("striped", "scale_down"))
+
+tab
+```

@@ -1,0 +1,65 @@
+```{r}
+#| label: tbl-vars
+#| cache: true
+#| cache.comments: false
+#| tbl-cap: "Variable definitions and data sources"
+#| tbl-pos: "H"
+
+vars <- tibble(var = names(pop))
+
+# meta data
+meta <- bind_rows(
+  metaout,
+  metalm %>%
+    rename(Code = ATC) %>%
+    mutate(Code = paste0("ATC ", Code))
+)
+
+vars <- full_join(vars, meta, by = c("var" = "Variable")) %>%
+  mutate(
+    order = 1:n()
+  )
+
+vars <- vars %>%
+  arrange(order) %>%
+  mutate(
+    Register = case_when(
+      Register == "Dispensed Drug Registry" ~ "NPDR",
+      str_detect(var, "scb_") ~ "LISA",
+      str_detect(var, "snr_") ~ "Svenskt Njurregister",
+      TRUE ~ Register
+    ),
+    Code = str_trim(Code),
+    Code = str_remove_all(Code, "\\^|\\(|\\)"),
+    Code = str_replace_all(Code, "ICD", "ICD-10"),
+    Code = str_replace_all(Code, ":", " "),
+    Code = str_replace_all(Code, ",", ", "),
+    Period = case_when(
+      str_detect(var, "scb_") ~ "Year preceeding baseline",
+      var %in% c("lab_sodium", "lab_hb") ~ "-365-0. The value closest to baseline is selected. If there are multiple values on the same day the mean is calculated. Only out-patient values are included.",
+      var %in% c("lab_egfr") ~ "-547-0. The value closest to baseline is selected. If there are multiple values on the same day the mean is calculated. Only out-patient values are included.",
+      var == "snr_dialysis" ~ "-0",
+      str_detect(var, "sos_com_") ~ str_remove(Period, "0-"),
+      TRUE ~ Period
+    ),
+    Period = if_else(str_detect(var, "sos_com_"), paste0(Period, "-0"), Period),
+    Position = case_when(
+      str_detect(var, "sos_com_ex_transfusion") ~ "all",
+      str_detect(var, "sos_com_ex|sos_com_hf|sos_com_hypertension") ~ "main",
+      str_detect(var, "sos_com_") ~ "all",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  rename(Variable = var) %>%
+  select(-order)
+
+default_kable(vars,
+  escape = TRUE,
+  longtable = TRUE,
+  font_size = 8.5
+) %>%
+  column_spec(1, width = "4.2cm") %>%
+  column_spec(2, width = "6cm") %>%
+  column_spec(3, width = "4cm") %>%
+  column_spec(5, width = "6cm")
+```

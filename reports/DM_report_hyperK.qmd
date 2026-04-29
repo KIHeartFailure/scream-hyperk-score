@@ -1,0 +1,119 @@
+---
+title: "DM report: Precision-enhancing risk stratification for optimizing the management of hyperkalemia"
+date: "`r Sys.Date()`"
+cover: static/ki_logo_vert_rgb.png
+editor: source
+format:
+  pdf:
+    documentclass: scrartcl
+    template-partials:
+      - "static/before-body.tex"
+      - "static/_titlepage.tex"
+    include-in-header: 
+      - "static/in-header.tex"
+    toc: true
+    toc-depth: 3
+    toc-title: Contents
+    lof: false
+    lot: false
+    cap-location: top
+    number-sections: true
+    colorlinks: false
+    keep-tex: false
+knitr:
+  opts_chunk: 
+    dev: cairo_pdf
+    collapse: true
+    comment: "" 
+    echo: FALSE
+    include: TRUE
+    warning: FALSE
+    message: FALSE
+    fig.pos: "H"
+    fig.path: "../output/figs/"
+    fig.height: 6
+    fig.width: 10
+    R.options:
+      knitr.graphics.auto_pdf: true
+---
+
+```{r}
+#| label: set-up-load-data
+options(knitr.kable.NA = "")
+
+# load packages, globals and project specific functions
+source(here::here("setup/setup.R"))
+
+# load data
+load(here("data/clean-data/hkdata.RData"))
+```           
+
+\newpage
+
+# Data
+
+## Inclusion/exclusion criteria
+
+```{r}
+#| label: tbl-flow
+#| tbl-cap: Information for flowchart
+#| tbl-pos: "H"
+
+default_kable(flow)
+```
+
+NOTE!!!!!! Depending on if use 120 or 7 day blanking period also need to exclude patients with $\le$ 7/120 days follow-up (outtime_hyperk7/outtime_hyperk120).
+
+## Population defintion
+
+2009-2021
+
+- See @tbl-vars for definitions for Heart failure, MI and hypertension. 
+- CKD. RRT = 1 in SNR any time or eGFR < 60. eGFR will be calculated according to the 2012 formula. Kreatinin values < 25, > 1500 as well as kreatinin values collected in in-patient care will be excluded. 
+
+The patient enters the potential population at the first date when any of the above is fulfilled. Baseline is if/when the patient has a recorded potassium > 5.5. Potassium values > 10 will be excluded. Only potassium values in the outpatient setting or on the day of hospital admission will be considered. If a patient has > 1 potassium > 5.5 during follow-up a random value is selected. 
+
+## Outcome defintion
+
+The outcome is defined as the first potassium > 5.5 after baseline. Potassium values > 10 will be excluded. Only potassium values in the outpatient setting or on the day of hospital admission will be considered. 
+
+Censoring occurs at 2021-12-31, migration from Stockholm, death or at 1 year. 
+
+### Blanking period
+
+Two blanking periods will be applied: 
+
+1. 120 days
+
+2. 7 days
+
+## Covariable definitions
+
+All covariables are defined at baseline (so not at the end of the blanking period), with the exception of the medications. 
+
+NOTE!!!! Some variables need to be created from the existing ones (for example anemia needs to be created from sos_com_anemiadiag, lab_hb and sos_lm_anemia)
+
+\blandscape
+
+{{< include src/vars.qmd >}}
+
+\elandscape
+
+{{< include src/basetab.qmd >}}
+
+# Reproducibility
+
+## R code
+
+The R code for the data handling is found: 
+  
+https://github.com/KIHeartFailure/scream-hyperk-score. On publication
+the repository will be made public so as to 
+link to it from the resulting article for increased transparency and code sharing.
+No data or output is stored in the repository. 
+
+## R session information {#sessioninfo}
+
+```{r sessinfo}
+sessionInfo()
+```
