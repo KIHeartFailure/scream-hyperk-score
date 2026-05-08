@@ -28,14 +28,34 @@ dim(pop)
 # [1]    3,082,164        6
 
 pop <- pop %>%
-  filter(is.na(deathyear) | deathyear >= 2009)
+  filter(is.na(deathyear) | deathyear >= year(global_start)) %>%
+  mutate(censdtm = pmin(global_end, deathdtm, na.rm = T))
 flow <- add_row(flow,
-  Criteria = "Alive >= 2009",
+  Criteria = paste0("Alive >= ", year(global_start)),
   N = nrow(pop)
 )
 
 dim(pop)
 # [1]  3042342        6
+
+# hyperK NOT unique individuals from here on
+potasuse <- read.fst("data/fst-data/potasuse.fst")
+
+pop <- inner_join(pop,
+  potasuse %>%
+    rename(
+      lab_potas = result,
+      indexdtm = labdtm
+    ) %>%
+    select(lopnr, indexdtm, lab_potas),
+  by = "lopnr"
+) %>%
+  filter(indexdtm >= global_start & indexdtm <= global_end)
+
+flow <- add_row(flow,
+  Criteria = ">= 1 potassium > 5.5",
+  N = nrow(pop %>% distinct(lopnr))
+)
 
 # CV population -----------------------------------------------------------
 
@@ -43,7 +63,7 @@ sv <- read.fst("data/kosmos-data/sv.fst")
 ov <- read.fst("data/kosmos-data/ov.fst")
 kon <- read.fst("data/kosmos-data/kon.fst")
 
-sv <- sv %>%
+svcv <- sv %>%
   mutate(cvtype = case_when(
     str_detect(diagnosis, "^(I110|I130|I132|I255|I420|I423|I42[5-9]|I43|I50|J81|K761|R570)") ~ "hf",
     str_detect(diagnosis, "^(I1[0-5])") ~ "hypertension",
@@ -64,19 +84,16 @@ kon <- kon %>%
     str_detect(diagnosis, "^(I21|I22|I252)") ~ "mi"
   )) %>%
   filter(cvtype %in% c("hf", "hypertension") & diag_no == "diag1" | cvtype == "mi")
-cv <- bind_rows(sv, ov, kon)
+cv <- bind_rows(svcv, ov, kon)
 
 cv <- cv %>%
   filter(bdtm <= global_end &
     ((cvtype %in% c("mi") & bdtm >= (global_start - 365.25 * 10)) | (cvtype %in% c("hf", "hypertension") & (bdtm >= global_start - 365.25 * 5)))) %>%
-  group_by(lopnr) %>%
-  arrange(bdtm) %>%
-  slice(1) %>%
-  ungroup() %>%
-  select(lopnr, bdtm)
+  rename(type = cvtype) %>%
+  select(lopnr, bdtm, type)
 
 rm(ov)
-rm(sv)
+rm(svcv)
 rm(kon)
 
 # CKD population ----------------------------------------------------------
@@ -89,124 +106,40 @@ snr <- snr %>%
 
 # egfr 2006-2021 already selected
 ckdlab <- egfr %>%
-  filter(labdtm >= (global_start - 1.5 * 365.25) & labdtm <= global_end & gfr < 60) %>%
-  group_by(lopnr) %>%
-  arrange(labdtm) %>%
-  slice(1) %>%
-  ungroup()
+  filter(labdtm >= (global_start - 1.5 * 365.25) & labdtm <= global_end & gfr < 60)
 
 # all pop
 popdiag <- bind_rows(
-  snr %>% rename(popdtm = ckddtm),
-  ckdlab %>% rename(popdtm = labdtm),
+  snr %>% rename(popdtm = ckddtm) %>% mutate(type = "snr"),
+  ckdlab %>% rename(popdtm = labdtm) %>% mutate(type = "gfr"),
   cv %>% rename(popdtm = bdtm)
 ) %>%
-  group_by(lopnr) %>%
-  arrange(popdtm) %>%
+  select(lopnr, popdtm, type)
+
+popdiag2 <- inner_join(pop %>% select(lopnr, indexdtm),
+  popdiag,
+  by = "lopnr"
+) %>%
+  filter(popdtm <= indexdtm &
+    ((type %in% c("mi") & popdtm >= indexdtm - 365.25 * 10) |
+      (type %in% c("hf", "hypertension") & popdtm >= indexdtm - 365.25 * 5) |
+      (type %in% c("gfr") & popdtm >= indexdtm - 365.25 * 1.5) |
+      type %in% c("snr"))) %>%
+  group_by(lopnr, indexdtm, type) %>%
   slice(1) %>%
   ungroup() %>%
-  select(lopnr, popdtm)
+  group_by(lopnr, indexdtm) %>%
+  summarise(diagtype = paste(type, collapse = ", ")) %>%
+  ungroup()
 
-pop <- inner_join(pop, popdiag, by = "lopnr") %>%
-  mutate(
-    popdtm = pmax(global_start, popdtm),
-    censdtm = pmin(global_end, deathdtm, na.rm = T)
-  ) %>%
-  filter(popdtm <= censdtm)
+pop <- inner_join(pop, popdiag2, by = c("lopnr", "indexdtm"))
 
 flow <- add_row(flow,
-  Criteria = "HF, MI, Hypertension or CKD",
-  N = nrow(pop)
+  Criteria = "With HF, MI, Hypertension or CKD",
+  N = nrow(pop %>% distinct(lopnr))
 )
 
 dim(pop)
-# 590961
-
-# hyperK NOT unique individuals
-potasuse <- read.fst("data/fst-data/potasuse.fst")
-
-pop <- inner_join(pop,
-  potasuse %>%
-    rename(lab_potas = result) %>%
-    select(lopnr, labdtm, lab_potas) %>%
-    rename(indexdtm = labdtm),
-  by = "lopnr"
-) %>%
-  filter(indexdtm >= popdtm & indexdtm <= censdtm)
-
-flow <- add_row(flow,
-  Criteria = ">= 1 potassium > 5.5 after HF, MI, Hypertension or CKD",
-  N = nrow(pop %>% distinct(lopnr))
-)
-#
-# # check dist of no of hyperk
-# plotcheck <- pop %>%
-#   group_by(lopnr) %>%
-#   count() %>%
-#   ungroup() %>%
-#   count(n)
-#
-# p1 <- ggplot(plotcheck, aes(x=n, y=nn)) +
-#   geom_bar(stat = "identity")
-#
-# p2 <- ggplot(plotcheck %>% filter(n < 30), aes(x=n, y=nn)) +
-#   geom_bar(stat = "identity")
-#
-# ggsave("./checks/check_number_hyperk.jpeg", p1)
-# ggsave("./checks/check_number_hyperk2.jpeg", p2)
-#
-# plotcheck2 <- pop %>%
-#   group_by(lopnr) %>%
-#   arrange(indexdtm) %>%
-#   mutate(diff = as.numeric(indexdtm - lag(indexdtm))) %>%
-#   ungroup() %>%
-#   arrange(lopnr, indexdtm) %>%
-#   filter(diff < 365) %>%
-#   group_by(lopnr) %>% count() %>%
-#   ungroup() %>%
-#   count(n)
-#
-# p3 <- ggplot(plotcheck2, aes(x=n, y=nn)) +
-#   geom_bar(stat = "identity")
-#
-# p4 <- ggplot(plotcheck2 %>% filter(n < 30), aes(x=n, y=nn)) +
-#   geom_bar(stat = "identity")
-#
-# ggsave("./checks/check_number_hyperk_rec.jpeg", p3)
-# ggsave("./checks/check_number_hyperk_rec2.jpeg", p4)
-#
-# pop1 <- pop %>%
-#   group_by(lopnr) %>%
-#   arrange(indexdtm) %>%
-#   slice(1) %>%
-#   ungroup()
-#
-# set.seed(378425)
-# pop2 <- pop %>%
-#   group_by(lopnr) %>%
-#   arrange(indexdtm) %>%
-#   slice_sample(n = 1) %>%
-#   ungroup()
-#
-#
-# pop12 <- left_join(pop1 %>% select(lopnr, indexdtm),
-#                    pop,
-#                    by = "lopnr") %>%
-#   filter(indexdtm.y > indexdtm.x & indexdtm.y <= indexdtm.x + 365) %>%
-#   group_by(lopnr) %>%
-#   arrange(indexdtm.y) %>%
-#   slice(1) %>%
-#   ungroup()
-#
-#
-# pop22 <- left_join(pop2 %>% select(lopnr, indexdtm),
-#                    pop,
-#                    by = "lopnr") %>%
-#   filter(indexdtm.y > indexdtm.x & indexdtm.y <= indexdtm.x + 365) %>%
-#   group_by(lopnr) %>%
-#   arrange(indexdtm.y) %>%
-#   slice(1) %>%
-#   ungroup()
 
 # bor i stockholm någon gång under tidsperioden
 flyttuse <- inner_join(pop, flytt, by = "lopnr")
@@ -270,7 +203,6 @@ flow <- add_row(flow,
   N = nrow(pop %>% distinct(lopnr))
 )
 
-sv <- read.fst("data/kosmos-data/sv.fst")
 # Exclusion criteria
 sv <- inner_join(sv, pop %>% select(lopnr), by = "lopnr") %>%
   filter(diag_no == "diag1")
@@ -336,6 +268,130 @@ flow <- add_row(flow,
   N = nrow(pop %>% distinct(lopnr))
 )
 
+
+# check dist of no of hyperk
+plotcheck <- pop %>%
+  group_by(lopnr) %>%
+  count() %>%
+  ungroup() %>%
+  count(n)
+
+p1 <- ggplot(plotcheck, aes(x = n, y = nn)) +
+  geom_bar(stat = "identity", col = "#8A9A5B", fill = "#8A9A5B") +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    text = element_text(size = 20, face = "bold"),
+    axis.text = element_text(color = "black"),
+    plot.background = element_rect(fill = "#F0F0F0", colour = "#F0F0F0"),
+    panel.background = element_rect(fill = "#F0F0F0", colour = "#F0F0F0")
+  ) +
+  labs(y = "N patients", x = "N hyperK")
+
+p2 <- ggplot(plotcheck %>% filter(n <= 10), aes(x = n, y = nn)) +
+  geom_bar(stat = "identity", col = "#8A9A5B", fill = "#8A9A5B") +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    text = element_text(size = 20, face = "bold"),
+    axis.text = element_text(color = "black"),
+    plot.background = element_rect(fill = "#F0F0F0", colour = "#F0F0F0"),
+    panel.background = element_rect(fill = "#F0F0F0", colour = "#F0F0F0")
+  ) +
+  scale_x_continuous(breaks = seq(1, 10, 1)) +
+  labs(y = "N patients", x = "N hyperK (truncated at 10)")
+
+ggsave("./reports/figs/check_number_hyperk.pdf", p1)
+ggsave("./reports/figs/check_number_hyperk2.pdf", p2)
+
+plotcheck2 <- pop %>%
+  group_by(lopnr) %>%
+  arrange(indexdtm) %>%
+  mutate(diff = as.numeric(indexdtm - lag(indexdtm))) %>%
+  ungroup() %>%
+  arrange(lopnr, indexdtm) %>%
+  filter(diff < 365) %>%
+  group_by(lopnr) %>%
+  count() %>%
+  ungroup() %>%
+  count(n)
+
+p3 <- ggplot(plotcheck2, aes(x = n, y = nn)) +
+  geom_bar(stat = "identity", col = "#8A9A5B", fill = "#8A9A5B") +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    text = element_text(size = 20, face = "bold"),
+    axis.text = element_text(color = "black"),
+    plot.background = element_rect(fill = "#F0F0F0", colour = "#F0F0F0"),
+    panel.background = element_rect(fill = "#F0F0F0", colour = "#F0F0F0")
+  ) +
+  labs(y = "N patients", x = "N recurrent hyperK")
+
+p4 <- ggplot(plotcheck2 %>% filter(n <= 10), aes(x = n, y = nn)) +
+  geom_bar(stat = "identity", col = "#8A9A5B", fill = "#8A9A5B") +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    text = element_text(size = 20, face = "bold"),
+    axis.text = element_text(color = "black"),
+    plot.background = element_rect(fill = "#F0F0F0", colour = "#F0F0F0"),
+    panel.background = element_rect(fill = "#F0F0F0", colour = "#F0F0F0")
+  ) +
+  scale_x_continuous(breaks = seq(1, 10, 1)) +
+  labs(y = "N patients", x = "N recurrent hyperK (truncated at 10)")
+
+ggsave("./reports/figs/check_number_hyperk_rec.pdf", p3)
+ggsave("./reports/figs/check_number_hyperk_rec2.pdf", p4)
+
+pop1 <- pop %>%
+  group_by(lopnr) %>%
+  arrange(indexdtm) %>%
+  slice(1) %>%
+  ungroup()
+
+set.seed(378425)
+pop2 <- pop %>%
+  group_by(lopnr) %>%
+  arrange(indexdtm) %>%
+  slice_sample(n = 1) %>%
+  ungroup()
+
+
+pop12 <- left_join(pop1 %>% select(lopnr, indexdtm),
+  pop,
+  by = "lopnr"
+) %>%
+  filter(indexdtm.y > indexdtm.x & indexdtm.y <= indexdtm.x + 365) %>%
+  group_by(lopnr) %>%
+  arrange(indexdtm.y) %>%
+  slice(1) %>%
+  ungroup() %>%
+  count()
+
+
+pop22 <- left_join(pop2 %>% select(lopnr, indexdtm),
+  pop,
+  by = "lopnr"
+) %>%
+  filter(indexdtm.y > indexdtm.x & indexdtm.y <= indexdtm.x + 365) %>%
+  group_by(lopnr) %>%
+  arrange(indexdtm.y) %>%
+  slice(1) %>%
+  ungroup() %>%
+  count()
+
+ncheck <- tibble(
+  Selection = c("Selection process first", "Selection process random"),
+  N = c(pop12$n, pop22$n)
+)
+
+# choose random selection
+
 set.seed(378425)
 pop <- pop %>%
   group_by(lopnr) %>%
@@ -346,6 +402,7 @@ pop <- pop %>%
 pop <- pop %>%
   select(-tmpflyttindtm, -flyttindtm, -flyttutdtm, -starts_with("sos_com_ex_"))
 
+write.fst(ncheck, "data/fst-data/ncheck.fst")
 write.fst(pop, "data/fst-data/pop.fst")
 write.fst(flow, "data/fst-data/flow.fst")
 write.fst(metaout, "data/fst-data/metaout.fst")

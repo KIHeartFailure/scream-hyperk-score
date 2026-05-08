@@ -10,7 +10,7 @@ tabvars <- names(pop)
 tab <-
   tbl_summary(
     pop,
-    include = c(-lopnr, -deathcause, -deathdtm, -indexdtm, -censdtm, -dob, -deathyear, -popdtm)
+    include = c(-lopnr, -deathcause, -deathdtm, -indexdtm, -censdtm, -dob, -deathyear, -diagtype)
   ) %>%
   as_kable(tbl, format = "latex", longtable = TRUE, booktabs = TRUE, linesep = "") %>%
   kableExtra::kable_styling(latex_options = c("striped", "scale_down"))

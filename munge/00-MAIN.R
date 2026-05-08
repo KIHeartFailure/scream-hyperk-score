@@ -33,6 +33,7 @@ source(here("munge/08-labs.R"))
 flow <- read.fst("data/fst-data/flow.fst")
 metaout <- read.fst("data/fst-data/metaout.fst")
 metalm <- read.fst("data/fst-data/metalm.fst")
+ncheck <- read.fst("data/fst-data/ncheck.fst")
 
 save(
   file = here("data/clean-data/hkdata.RData"),
@@ -40,6 +41,7 @@ save(
     "flow",
     "metalm",
     "metaout",
+    "ncheck",
     "pop"
   )
 )

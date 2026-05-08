@@ -62,16 +62,16 @@ load(here("data/clean-data/hkdata.RData"))
 default_kable(flow)
 ```
 
-NOTE!!!!!! Depending on if use 120 or 7 day blanking period also need to exclude patients with $\le$ 7/120 days follow-up (outtime_hyperk7/outtime_hyperk120).
+Depending on if you use 120 or 7 day blanking period you also need to exclude patients with $\le$ 7/120 days follow-up (outtime_hyperk7/outtime_hyperk120). There are people with 0 fu time (censored), these should be excluded. 
 
 ## Population defintion
 
-2009-2021
+2009-2021. If you want patients to have 1 full year of follow-up you need to exclude patients included in 2021 since end of follow-up is 2021-12-31. 
 
 - See @tbl-vars for definitions for Heart failure, MI and hypertension. 
 - CKD. RRT = 1 in SNR any time or eGFR < 60. eGFR will be calculated according to the 2012 formula. Kreatinin values < 25, > 1500 as well as kreatinin values collected in in-patient care will be excluded. 
 
-The patient enters the potential population at the first date when any of the above is fulfilled. Baseline is if/when the patient has a recorded potassium > 5.5. Potassium values > 10 will be excluded. Only potassium values in the outpatient setting or on the day of hospital admission will be considered. If a patient has > 1 potassium > 5.5 during follow-up a random value is selected. 
+Baseline is if/when the patient has a recorded potassium > 5.5 and if any of the above is fulfilled. Potassium values > 10 will be excluded. If there are two potassium measures on the same day the highest one will be selected. Only potassium values in the outpatient setting or on the day of hospital admission will be considered. If a patient has > 1 potassium > 5.5 during follow-up a random value is selected as baseline. 
 
 ## Outcome defintion
 
@@ -89,9 +89,9 @@ Two blanking periods will be applied:
 
 ## Covariable definitions
 
-All covariables are defined at baseline (so not at the end of the blanking period), with the exception of the medications. 
+All covariables are defined at baseline (so not at the end of the blanking period), with the exception of the medications ending with _post. 
 
-NOTE!!!! Some variables need to be created from the existing ones (for example anemia needs to be created from sos_com_anemiadiag, lab_hb and sos_lm_anemia)
+Some variables need to be created from the existing ones (for example anemia needs to be created from sos_com_anemiadiag, lab_hb and sos_lm_anemia). 
 
 \blandscape
 
@@ -100,6 +100,35 @@ NOTE!!!! Some variables need to be created from the existing ones (for example a
 \elandscape
 
 {{< include src/basetab.qmd >}}
+
+# Checks if should select the first hyperK event or a random hyperK event
+
+::: {#fig-potas layout-ncol=2}
+![not truncated](figs/check_number_hyperk.pdf)
+
+![truncated](figs/check_number_hyperk2.pdf)
+
+HyperK (population)
+:::
+
+::: {#fig-potasrec layout-ncol=2}
+![not truncated](figs/check_number_hyperk_rec.pdf)
+
+![truncated](figs/check_number_hyperk_rec2.pdf)
+
+Recurrent hyperK within 1 year (events)
+:::
+
+
+```{r}
+#| label: tbl-selcheck
+#| tbl-cap: Comparison number of events (not including blanking) when selecting first or random hyperK event
+#| tbl-pos: "H"
+
+default_kable(ncheck, col.names = c(" ", "N events"))
+```
+
+\clearpage
 
 # Reproducibility
 
