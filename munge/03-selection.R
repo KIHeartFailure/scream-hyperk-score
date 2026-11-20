@@ -12,20 +12,19 @@ flow <- tibble(
   N = nrow(pop)
 )
 dim(pop)
-# [1]  3085764       6
+# [1]  3321340       6
 
 
 # ej återanvänt personnummer
 pop <- left_join(pop, pininfo, by = "lopnr") %>%
-  filter(scb_reusedpin == 0 | is.na(scb_reusedpin)) %>%
-  select(-scb_reusedpin, -scb_changedpin)
+  filter(ReturnPNr == 0 & latest_check_pnr == 1) %>%
+  select(-latest_check_pnr, -ReturnPNr, -ErrorLatePNr, -SameOrderNr)
 flow <- add_row(flow,
-  Criteria = "Not re-used PINs",
+  Criteria = "Not re-used or changed PINs",
   N = nrow(pop)
 )
 
 dim(pop)
-# [1]    3,082,164        6
 
 pop <- pop %>%
   filter(is.na(deathyear) | deathyear >= year(global_start)) %>%

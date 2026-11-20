@@ -1,11 +1,19 @@
+source(here::here("setup/setup.R"))
+
 # Read data from KOSMOS and save as fst files -----------------------------
 
 dbhandle <- odbcConnect("kosmos")
 
+tabs <- sqlTables(dbhandle, catalog = "SCREAM2", schema = "SCREAM2_CLEAN")
+
 demo <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.scream2_demo")
 demo <- demo %>%
   mutate(dob = ymd(dob)) %>%
-  select(lopnr, female, dob)
+  select(lopnr, female, dob) %>%
+  group_by(lopnr) %>%
+  arrange(dob, female) %>%
+  slice(1) %>%
+  ungroup()
 # anyDuplicated(demo$lopnr)
 write.fst(demo, "data/kosmos-data/demo.fst")
 
@@ -17,10 +25,19 @@ flytt <- flytt %>%
 write.fst(flytt, "data/kosmos-data/flytt.fst")
 
 socioec <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.socioecon")
+# koll <- socioec %>%
+#  group_by(lopnr, year) %>%
+#  slice(2) %>%
+#  ungroup()
 write.fst(socioec, "data/kosmos-data/socioec.fst")
 
-pininfo <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.pininfo")
+pininfo <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.reused_cases_pnr_2025")
 # anyDuplicated(pininfo$lopnr)
+pininfo <- pininfo %>%
+  group_by(lopnr) %>%
+  arrange(desc(ReturnPNr), desc(latest_check_pnr)) %>%
+  slice(1) %>%
+  ungroup()
 write.fst(pininfo, "data/kosmos-data/pininfo.fst")
 
 death <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.scream2_death")
@@ -41,8 +58,9 @@ death <- death %>%
 write.fst(death, "data/kosmos-data/death.fst")
 
 snr <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.snr_rrt")
+
 snr <- snr %>%
-  filter(rrt == 1) %>%
+  filter(rrt == 1 | is.na(rrt)) %>%
   mutate(ckddtm = ymd(rrt_date)) %>%
   group_by(lopnr) %>%
   arrange(ckddtm) %>%
@@ -85,13 +103,19 @@ write.fst(kon, "data/kosmos-data/kon.fst")
 
 # procedure
 
-proc_sv <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.slv_procedurecodes")
+proc_sv <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.slv_procedurecodes where opk LIKE 'DR%'")
+proc_sv <- proc_sv %>%
+  mutate(opdtm = ymd(datum_c)) %>%
+  select(-kombika, -datum_c)
 
-write.fst(proc_sv, "data/kosmos-data/proc_sv.fst")
+write.fst(proc_sv, "data/kosmos-data/proc_sv_dr.fst")
 
-proc_ov <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.ovr_procedurecodes")
+proc_ov <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.ovr_procedurecodes where opk LIKE 'DR%'")
+proc_ov <- proc_ov %>%
+  mutate(opdtm = ymd(datum)) %>%
+  select(-kombika, -datum_c, -datum)
 
-write.fst(proc_ov, "data/kosmos-data/proc_ov.fst")
+write.fst(proc_ov, "data/kosmos-data/proc_ov_dr.fst")
 
 # lm
 
@@ -126,48 +150,50 @@ lm_V03AE <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.v_x_lmed_all
                where atc LIKE 'V03AE%'")
 
 lm <- bind_rows(lm_a1, lm_b01a, lm_b03a, lm_b03xa, lm_c, lm_R03A, lm_M01A, lm_H02AB, lm_L04AD, lm_V03AE)
-
+rm(list = ls()[str_detect(ls(), "^lm_")])
+gc()
 lm <- lm %>%
-  mutate(edatum = ymd(edatum)) %>%
+  mutate(edatum = ymd(EDATUM)) %>%
+  rename(
+    lopnr = LopNr,
+    atc = ATC
+  ) %>%
   select(lopnr, edatum, ar, atc)
 
 write.fst(lm, "data/kosmos-data/lm.fst")
 
 # laboratory
 
-lab <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.lab_values
-                where test in ('crea', 'dipstick-alb', 'potas', 'sodium',
-                'uacr', 'ualb', 'regular Hb')")
+# potassium
+potas <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.Potassium_2006_2025")
 
-lab <- lab %>%
+# units are in mmol/L
+potas <- potas %>%
   mutate(
     labdtm = ymd(datum),
     labyear = year(labdtm)
   ) %>%
-  filter(labyear >= 2006 & labyear <= 2021) %>%
-  select(lopnr, labdtm, test, Analys, vtype, result, labyear, enhet)
-
-write.fst(lab, "data/kosmos-data/labraw.fst")
-
-# potassium
-# units are in mmol/L
-potas <- lab %>%
-  filter(test == "potas" & Analys %in% c("P-Kalium", "S-Kalium") & result <= 10) %>%
-  select(-test)
+  filter(labyear >= 2006 & labyear <= 2025 & Analys %in% c("P-KALIUM", "S-KALIUM") & result <= 10) %>%
+  select(lopnr, labdtm, Analys, IP, OP, result, labyear, enhet)
 write.fst(potas, "data/kosmos-data/potas.fst")
 rm(potas)
 
 # eGFR
 demo <- read.fst("data/kosmos-data/demo.fst")
-
-egfr <- lab %>%
-  filter(test == "crea" & result >= 25 & result <= 1500 & vtype != "IP") %>%
+crea <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.Creatinine_2006_2025")
+crea <- crea %>%
+  mutate(
+    labdtm = ymd(datum),
+    labyear = year(labdtm)
+  ) %>%
+  filter(labyear >= 2006 & labyear <= 2025 & result >= 25 & result <= 1500 & IP == 0 &
+    !Analys %in% c("aB-Krea ABL/PNA", "aB-Krea iSTAT/PNA", "kB-Krea ABL/PNA", "vB-Krea ABL/PNA", "vB-Krea iSTAT/PNA")) %>%
   group_by(lopnr, labdtm, labyear) %>%
   summarize(result = mean(result)) %>%
   ungroup()
 
 egfr <- left_join(
-  egfr,
+  crea,
   demo,
   by = "lopnr"
 ) %>%
@@ -183,17 +209,27 @@ egfr <- left_join(
 write.fst(egfr, "data/kosmos-data/egfr.fst")
 
 # all units g/L
-hb <- lab %>%
-  filter(test == "regular Hb" & vtype != "IP") %>%
+hb <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.Hemoglobin_2006_2025")
+hb <- hb %>%
+  mutate(
+    labdtm = ymd(datum),
+    labyear = year(labdtm)
+  ) %>%
+  filter(labyear >= 2006 & labyear <= 2025 & IP == 0) %>%
   group_by(lopnr, labdtm, labyear) %>%
   summarize(result = mean(result)) %>%
   ungroup() %>%
   mutate(labyear = year(labdtm))
 write.fst(hb, "data/kosmos-data/hb.fst")
 
+sodium <- sqlQuery(dbhandle, "select * from SCREAM2.SCREAM2_CLEAN.Sodium_2006_2025")
 # all units mmol/L
-sodium <- lab %>%
-  filter(test == "sodium" & vtype != "IP") %>%
+sodium <- sodium %>%
+  mutate(
+    labdtm = ymd(datum),
+    labyear = year(labdtm)
+  ) %>%
+  filter(labyear >= 2006 & labyear <= 2025 & IP == 0) %>%
   group_by(lopnr, labdtm, labyear) %>%
   summarize(result = mean(result)) %>%
   ungroup() %>%

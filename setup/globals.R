@@ -12,6 +12,6 @@ global_z05 <- qnorm(1 - 0.025)
 global_cols <- RColorBrewer::brewer.pal(7, "Dark2")
 
 global_start <- ymd("2009-01-01")
-global_end <- ymd("2021-12-31")
+global_end <- ymd("2025-12-31")
 
 global_fu <- 365
